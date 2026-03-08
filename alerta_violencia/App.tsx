@@ -11,6 +11,13 @@ import {
   useScreenReader,
 } from './modules/screen-reader';
 
+import {
+  configurarCanalNotificacionesAndroid,
+  escucharNotificaciones,
+  enviarNotificacionLocal,
+  solicitarPermisosNotificaciones,
+} from './servicios/Notificaciones';
+
 import { AnalisisScreen } from './screens/AnalisisScreen';
 import { ComoFuncionaScreen } from './screens/ComoFuncionaScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -41,6 +48,91 @@ type Pantalla =
   | 'como-funciona'
   | 'notificaciones';
 
+type CoincidenciaGroseria = {
+  keyword: string;
+  category: string;
+  severity: string;
+};
+
+const palabrasGroseras = [
+  'puta',
+  'puta madre',
+  'basura',
+  'basuras',
+  'mierda',
+  'carajo',
+  'idiota',
+  'imbecil',
+  'imbécil',
+  'estupido',
+  'estúpido',
+  'estupida',
+  'estúpida',
+  'maldito',
+  'maldita',
+  'perra',
+  'perro',
+  'zorra',
+  'pendejo',
+  'pendeja',
+  'hijo de puta',
+  'hija de puta',
+  'hdp',
+];
+
+function normalizarTexto(texto: string) {
+  return texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function detectarGroserias(texto: string): {
+  detectado: boolean;
+  matches: CoincidenciaGroseria[];
+  severity: 'BAJO' | 'MEDIO' | 'ALTO' | 'CRITICO' | null;
+} {
+  const textoNormalizado = normalizarTexto(texto);
+  const matches: CoincidenciaGroseria[] = [];
+
+  for (const palabra of palabrasGroseras) {
+    if (textoNormalizado.includes(normalizarTexto(palabra))) {
+      matches.push({
+        keyword: palabra,
+        category: 'Lenguaje ofensivo',
+        severity: 'ALTO',
+      });
+    }
+  }
+
+  if (matches.length === 0) {
+    return {
+      detectado: false,
+      matches: [],
+      severity: null,
+    };
+  }
+
+  const severity =
+    matches.length >= 3 ? 'CRITICO' : matches.length >= 2 ? 'ALTO' : 'MEDIO';
+
+  return {
+    detectado: true,
+    matches,
+    severity,
+  };
+}
+
+function nombreAppDesdePackage(appPackage: string) {
+  const ultimaParte = appPackage.split('.').pop() ?? appPackage;
+  return ultimaParte.replace(/^(.)/, (c) => c.toUpperCase());
+}
+
+function crearClaveTexto(texto: string, appPackage: string) {
+  return `${appPackage}::${normalizarTexto(texto)}`;
+}
+
 export default function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [detections, setDetections] = useState<DetectionResult[]>([]);
@@ -51,6 +143,9 @@ export default function App() {
   const [resultadoActual, setResultadoActual] = useState<ResultadoAnalisis | null>(null);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const limpiarNotificacionesRef = useRef<(() => void) | null>(null);
+  const ultimaClaveNotificadaRef = useRef('');
+  const ultimoTiempoNotificacionRef = useRef(0);
 
   const { texto, plataforma } = useScreenReader();
 
@@ -60,23 +155,74 @@ export default function App() {
   }, [texto, plataforma]);
 
   useEffect(() => {
+    async function inicializarNotificaciones() {
+      await configurarCanalNotificacionesAndroid();
+      await solicitarPermisosNotificaciones();
+    }
+
+    inicializarNotificaciones();
+    limpiarNotificacionesRef.current = escucharNotificaciones();
+
+    return () => {
+      limpiarNotificacionesRef.current?.();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!permissionGranted) return;
 
     startMonitoring();
 
-    unsubscribeRef.current = onTextCaptured((result) => {
-      setCapturedTexts((prev) => [
-        {
-          text: result.rawText,
-          appPackage: result.appPackage,
-          timestamp: result.timestamp,
-        },
-        ...prev,
-      ].slice(0, 80));
+    unsubscribeRef.current = onTextCaptured(async (result) => {
+      setCapturedTexts((prev) =>
+        [
+          {
+            text: result.rawText,
+            appPackage: result.appPackage,
+            timestamp: result.timestamp,
+          },
+          ...prev,
+        ].slice(0, 80)
+      );
 
-      if (!result.detected) return;
+      if (result.detected) {
+        setDetections((prev) => [result, ...prev].slice(0, 50));
+      }
 
-      setDetections((prev) => [result, ...prev].slice(0, 50));
+      const analisisGroserias = detectarGroserias(result.rawText);
+
+      if (!analisisGroserias.detectado) return;
+
+      const claveActual = crearClaveTexto(result.rawText, result.appPackage);
+      const ahora = Date.now();
+
+      if (claveActual === ultimaClaveNotificadaRef.current) return;
+      if (ahora - ultimoTiempoNotificacionRef.current < 5000) return;
+
+      ultimaClaveNotificadaRef.current = claveActual;
+      ultimoTiempoNotificacionRef.current = ahora;
+
+      const detectionManual: DetectionResult = {
+        rawText: result.rawText,
+        appPackage: result.appPackage,
+        timestamp: result.timestamp,
+        detected: true,
+        severity: analisisGroserias.severity,
+        matches: analisisGroserias.matches,
+      };
+
+      setDetections((prev) => [detectionManual, ...prev].slice(0, 50));
+
+      const nombreApp = nombreAppDesdePackage(result.appPackage);
+      const resumenPalabras = analisisGroserias.matches
+        .map((item) => item.keyword)
+        .slice(0, 3)
+        .join(', ');
+
+      await enviarNotificacionLocal(
+        `⚠ Lenguaje ofensivo detectado en ${nombreApp}`,
+        `Palabras detectadas: ${resumenPalabras}`
+      );
     });
 
     return () => {
