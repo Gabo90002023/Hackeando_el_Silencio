@@ -1,0 +1,12 @@
+{
+  "name": "screen-reader",
+  "version": "1.0.0",
+  "description": "Módulo de detección de violencia digital mediante AccessibilityService",
+  "main": "index.ts",
+  "scripts": {},
+  "dependencies": {},
+  "peerDependencies": {
+    "expo-modules-core": "*",
+    "react-native": "*"
+  }
+}

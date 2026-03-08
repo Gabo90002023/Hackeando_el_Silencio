@@ -1,137 +1,247 @@
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  DetectionResult,
+  PermissionSetup,
+  onTextCaptured,
+  startMonitoring,
+  stopMonitoring,
+  useScreenReader,
+} from './modules/screen-reader';
 
-type Alerta = {
-  id: number;
-  remitente: string;
-  hora: string;
-  nivel: 'Alto' | 'Medio' | 'Bajo';
-  estado: 'Pendiente' | 'En revisión' | 'Atendida';
-  mensaje: string;
+type CapturedText = {
+  text: string;
+  appPackage: string;
+  timestamp: number;
 };
 
-const alertasEjemplo: Alerta[] = [
-  {
-    id: 1,
-    remitente: 'WhatsApp',
-    hora: '21:10',
-    nivel: 'Alto',
-    estado: 'Pendiente',
-    mensaje: 'Si no contestas ahora, te voy a buscar donde estés.',
-  },
-  {
-    id: 2,
-    remitente: 'Messenger',
-    hora: '20:42',
-    nivel: 'Medio',
-    estado: 'En revisión',
-    mensaje: 'Siempre haces lo mismo, no sirves para nada.',
-  },
-  {
-    id: 3,
-    remitente: 'SMS',
-    hora: '19:58',
-    nivel: 'Bajo',
-    estado: 'Atendida',
-    mensaje: '¿Por qué no respondes? Necesito hablar contigo ya.',
-  },
-];
-
-function obtenerColorNivel(nivel: Alerta['nivel']) {
-  switch (nivel) {
-    case 'Alto':
-      return '#D32F2F';
-    case 'Medio':
-      return '#F57C00';
-    case 'Bajo':
-      return '#388E3C';
-    default:
-      return '#666';
-  }
-}
-
-function obtenerColorEstado(estado: Alerta['estado']) {
-  switch (estado) {
-    case 'Pendiente':
-      return '#D32F2F';
-    case 'En revisión':
-      return '#F9A825';
-    case 'Atendida':
-      return '#2E7D32';
-    default:
-      return '#666';
-  }
-}
+type Tab = 'alertas' | 'capturas';
 
 export default function App() {
-  const totalAlertas = alertasEjemplo.length;
-  const alertasAltas = alertasEjemplo.filter((item) => item.nivel === 'Alto').length;
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [detections, setDetections] = useState<DetectionResult[]>([]);
+  const [capturedTexts, setCapturedTexts] = useState<CapturedText[]>([]);
+  const [tab, setTab] = useState<Tab>('capturas');
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  return (
+  // Hook para obtener texto y plataforma en tiempo real
+  //Deben usar esto para mandar a la libreria que detecta la violencia :V 
+  const { texto, plataforma } = useScreenReader();
+  useEffect(() => {
+    if (!texto) return;
+    console.log("APP",`[${plataforma}]\n${texto}`);
+  }, [texto, plataforma]);
+ 
+
+  // Cuando el permiso es concedido, inicia el monitoreo
+  useEffect(() => {
+    if (!permissionGranted) return;
+
+    startMonitoring();
+
+ 
+    // Suscribe al evento de texto capturado
+    unsubscribeRef.current = onTextCaptured((result) => {
+      // Siempre guarda el texto capturado en el feed
+      setCapturedTexts((prev) => [
+        { text: result.rawText, appPackage: result.appPackage, timestamp: result.timestamp },
+        ...prev,
+      ].slice(0, 80));
+      if (!result.detected) return;
+      setDetections((prev) => [result, ...prev].slice(0, 50));
+    });
+
+    return () => {
+      stopMonitoring();
+      unsubscribeRef.current?.();
+    };
+  }, [permissionGranted]);
+
+  const handlePermissionGranted = useCallback(() => {
+    setPermissionGranted(true);
+  }, []);
+
+  const alertasAltas = detections.filter(
+    (d) => d.severity === 'CRITICO' || d.severity === 'ALTO'
+  ).length;
+
+  const tabBar = (
+    <View style={estilos.tabBar}>
+      <TouchableOpacity
+        style={[estilos.tabBtn, tab === 'capturas' && estilos.tabBtnActivo]}
+        onPress={() => setTab('capturas')}>
+        <Text style={[estilos.tabTexto, tab === 'capturas' && estilos.tabTextoActivo]}>
+          📝 Capturas ({capturedTexts.length})
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[estilos.tabBtn, tab === 'alertas' && estilos.tabBtnActivo]}
+        onPress={() => setTab('alertas')}>
+        <Text style={[estilos.tabTexto, tab === 'alertas' && estilos.tabTextoActivo]}>
+          🚨 Alertas ({detections.length})
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  // Aún verificando permiso — renderiza la app normal, el modal aparece encima
+  const mainContent = (
     <SafeAreaView style={estilos.areaSegura}>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={estilos.contenedor}>
         <View style={estilos.encabezado}>
           <Text style={estilos.titulo}>Sistema de Alerta de Violencia</Text>
-          <Text style={estilos.subtitulo}>Vista de monitoreo para tercero autorizado</Text>
+          <Text style={estilos.subtitulo}>
+            {permissionGranted ? '🟢 Monitoreo activo en tiempo real' : '⏳ Esperando permiso de accesibilidad…'}
+          </Text>
         </View>
 
         <View style={estilos.tarjetaResumen}>
           <Text style={estilos.tituloResumen}>Resumen general</Text>
-
           <View style={estilos.filaResumen}>
             <View style={estilos.cajaResumen}>
-              <Text style={estilos.numeroResumen}>{totalAlertas}</Text>
+              <Text style={[estilos.numeroResumen, { color: '#4CAF50' }]}>{capturedTexts.length}</Text>
+              <Text style={estilos.textoResumen}>Textos capturados</Text>
+            </View>
+            <View style={estilos.cajaResumen}>
+              <Text style={estilos.numeroResumen}>{detections.length}</Text>
               <Text style={estilos.textoResumen}>Alertas detectadas</Text>
             </View>
-
             <View style={estilos.cajaResumen}>
-              <Text style={[estilos.numeroResumen, { color: '#D32F2F' }]}>{alertasAltas}</Text>
-              <Text style={estilos.textoResumen}>Riesgo alto</Text>
+              <Text style={[estilos.numeroResumen, { color: '#D32F2F' }]}>
+                {alertasAltas}
+              </Text>
+              <Text style={estilos.textoResumen}>Riesgo alto/crítico</Text>
             </View>
           </View>
-
           <Text style={estilos.descripcionResumen}>
-            Este panel muestra mensajes con posibles indicios de violencia verbal, amenaza,
-            manipulación o agresión psicológica.
+            Detectando mensajes con indicios de amenaza, manipulación, acoso o
+            violencia verbal en todas las apps del dispositivo.
           </Text>
         </View>
 
-        <Text style={estilos.seccionTitulo}>Notificaciones recientes</Text>
+        {tabBar}
 
-        {alertasEjemplo.map((alerta) => (
-          <View key={alerta.id} style={estilos.tarjetaAlerta}>
-            <View style={estilos.filaSuperior}>
-              <Text style={estilos.origenMensaje}>{alerta.remitente}</Text>
-              <Text style={estilos.hora}>{alerta.hora}</Text>
-            </View>
-
-            <View style={estilos.filaEtiquetas}>
-              <View
-                style={[
-                  estilos.etiqueta,
-                  { backgroundColor: obtenerColorNivel(alerta.nivel) },
-                ]}
-              >
-                <Text style={estilos.etiquetaTexto}>Riesgo {alerta.nivel}</Text>
+        {tab === 'capturas' && (
+          <>
+            {capturedTexts.length === 0 && (
+              <View style={estilos.sinAlertas}>
+                <Text style={estilos.sinAlertasTexto}>
+                  Sin textos aún.{'\n'}Usa otras apps y verás el texto aquí.
+                </Text>
               </View>
+            )}
+            {capturedTexts.map((cap, idx) => (
+              <CapturaCard key={idx} capture={cap} />
+            ))}
+          </>
+        )}
 
-              <View
-                style={[
-                  estilos.etiqueta,
-                  { backgroundColor: obtenerColorEstado(alerta.estado) },
-                ]}
-              >
-                <Text style={estilos.etiquetaTexto}>{alerta.estado}</Text>
+        {tab === 'alertas' && (
+          <>
+            {detections.length === 0 && (
+              <View style={estilos.sinAlertas}>
+                <Text style={estilos.sinAlertasTexto}>
+                  Sin detecciones aún.{'\n'}El monitoreo está activo en background.
+                </Text>
               </View>
-            </View>
-
-            <Text style={estilos.labelMensaje}>Fragmento detectado</Text>
-            <Text style={estilos.mensaje}>"{alerta.mensaje}"</Text>
-          </View>
-        ))}
+            )}
+            {detections.map((det, idx) => (
+              <AlertaCard key={idx} detection={det} />
+            ))}
+          </>
+        )}
       </ScrollView>
     </SafeAreaView>
+  );
+
+  // Si el permiso no está concedido, muestra el modal sobre la app
+  if (!permissionGranted) {
+    return (
+      <PermissionSetup onPermissionGranted={handlePermissionGranted}>
+        {mainContent}
+      </PermissionSetup>
+    );
+  }
+
+  return mainContent;
+}
+
+// ─── Tarjeta de texto capturado (raw) ────────────────────────────────
+function CapturaCard({ capture }: { capture: CapturedText }) {
+  const hora = new Date(capture.timestamp).toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const appCorta = capture.appPackage.split('.').pop() ?? capture.appPackage;
+
+  return (
+    <View style={estilos.tarjetaCaptura}>
+      <View style={estilos.filaSuperior}>
+        <Text style={estilos.origenMensaje}>{appCorta}</Text>
+        <Text style={estilos.hora}>{hora}</Text>
+      </View>
+      <Text style={estilos.textoCapturado}>{capture.text}</Text>
+    </View>
+  );
+}
+
+// ─── Tarjeta por detección ─────────────────────────────────────────────────
+function AlertaCard({ detection }: { detection: DetectionResult }) {
+  const hora = new Date(detection.timestamp).toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const nivelColor =
+    detection.severity === 'CRITICO'
+      ? '#D32F2F'
+      : detection.severity === 'ALTO'
+      ? '#F57C00'
+      : detection.severity === 'MEDIO'
+      ? '#F9A825'
+      : '#388E3C';
+
+  return (
+    <View style={estilos.tarjetaAlerta}>
+      <View style={estilos.filaSuperior}>
+        <Text style={estilos.origenMensaje}>
+          {detection.appPackage.split('.').pop() ?? detection.appPackage}
+        </Text>
+        <Text style={estilos.hora}>{hora}</Text>
+      </View>
+
+      <View style={estilos.filaEtiquetas}>
+        <View style={[estilos.etiqueta, { backgroundColor: nivelColor }]}>
+          <Text style={estilos.etiquetaTexto}>{detection.severity}</Text>
+        </View>
+        {detection.matches.slice(0, 2).map((m, i) => (
+          <View key={i} style={[estilos.etiqueta, { backgroundColor: '#1e293b' }]}>
+            <Text style={estilos.etiquetaTexto}>{m.category}</Text>
+          </View>
+        ))}
+      </View>
+
+      <Text style={estilos.labelMensaje}>Fragmento detectado</Text>
+      <Text style={estilos.mensaje}>
+        "{detection.rawText.slice(0, 160)}{detection.rawText.length > 160 ? '…' : ''}"
+      </Text>
+
+      {detection.matches.length > 0 && (
+        <>
+          <Text style={[estilos.labelMensaje, { marginTop: 8 }]}>
+            Palabras/frases agresivas ({detection.matches.length})
+          </Text>
+          {detection.matches.map((m, i) => (
+            <Text key={i} style={estilos.keyword}>
+              • "{m.keyword}"
+            </Text>
+          ))}
+        </>
+      )}
+    </View>
   );
 }
 
@@ -250,5 +360,61 @@ const estilos = StyleSheet.create({
     fontSize: 15,
     color: '#1E293B',
     lineHeight: 22,
+  },
+  sinAlertas: {
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    padding: 24,
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sinAlertasTexto: {
+    color: '#64748b',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  keyword: {
+    fontSize: 13,
+    color: '#ef4444',
+    paddingLeft: 8,
+    marginBottom: 2,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  tabBtnActivo: {
+    backgroundColor: '#334155',
+  },
+  tabTexto: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  tabTextoActivo: {
+    color: '#FFFFFF',
+  },
+  tarjetaCaptura: {
+    backgroundColor: '#1e293b',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+  },
+  textoCapturado: {
+    fontSize: 14,
+    color: '#cbd5e1',
+    lineHeight: 21,
+    marginTop: 6,
   },
 });
