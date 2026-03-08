@@ -40,7 +40,7 @@ export default function Pantalla_detalle() {
   };
 
   const alPresionarEnviar = () => {
-    Alert.alert('Acción', 'Aquí puedes conectar el envío a un contacto de confianza.');
+    Alert.alert('Acción', 'Aquí puuedes conectar el envío a un contacto de confianza.');
   };
 
   const alPresionarRecomendaciones = () => {
