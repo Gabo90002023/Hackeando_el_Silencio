@@ -9,6 +9,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@tensorflow-models/toxicity": "^1.2.2",
     "expo": "^54",
     "expo-status-bar": "~3.0.9",
     "firebase": "^12.10.0",
