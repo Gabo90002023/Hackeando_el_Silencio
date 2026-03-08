@@ -71,6 +71,29 @@ export default function App() {
   }, [texto, plataforma]);
 
 
+  useEffect(() => {
+    let prob = 0;
+    outputs.forEach((o) => {
+      if (o.results[0].match) {
+        prob += 1;
+      }
+    });
+    const length = outputs.length;
+    if (length/prob <= length/3) {
+      console.log('Agresividad baja: ', prob);
+    }
+
+    if (length/prob <= length/2) {
+      console.log('Agresividad media: ', prob);
+    }
+
+    if (length/prob <= length) {
+      console.log('Agresividad intensa: ', prob);
+    }
+
+  }, [outputs])
+  
+
   // Cuando el permiso es concedido, inicia el monitoreo
   useEffect(() => {
     if (!permissionGranted) return;
