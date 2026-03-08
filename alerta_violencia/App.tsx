@@ -1,5 +1,21 @@
+import { useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  SafeAreaView,
+  ScrollView,
+  Text,
+  View,
+  TextInput,
+  Pressable,
+} from 'react-native';
+import { estilos } from './estilosApp';
+import {
+  configurarCanalNotificacionesAndroid,
+  escucharNotificaciones,
+  enviarNotificacionLocal,
+  solicitarPermisosNotificaciones,
+} from './servicios/Notificaciones';
+import { detectarViolencia } from './servicios/detectorViolencia';
 
 type Alerta = {
   id: number;
@@ -10,7 +26,7 @@ type Alerta = {
   mensaje: string;
 };
 
-const alertasEjemplo: Alerta[] = [
+const alertasIniciales: Alerta[] = [
   {
     id: 1,
     remitente: 'WhatsApp',
@@ -26,14 +42,6 @@ const alertasEjemplo: Alerta[] = [
     nivel: 'Medio',
     estado: 'En revisión',
     mensaje: 'Siempre haces lo mismo, no sirves para nada.',
-  },
-  {
-    id: 3,
-    remitente: 'SMS',
-    hora: '19:58',
-    nivel: 'Bajo',
-    estado: 'Atendida',
-    mensaje: '¿Por qué no respondes? Necesito hablar contigo ya.',
   },
 ];
 
@@ -63,9 +71,68 @@ function obtenerColorEstado(estado: Alerta['estado']) {
   }
 }
 
+function obtenerHoraActual() {
+  const ahora = new Date();
+  return ahora.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function App() {
-  const totalAlertas = alertasEjemplo.length;
-  const alertasAltas = alertasEjemplo.filter((item) => item.nivel === 'Alto').length;
+  const [textoEntrada, setTextoEntrada] = useState('');
+  const [alertas, setAlertas] = useState<Alerta[]>(alertasIniciales);
+
+  const totalAlertas = alertas.length;
+  const alertasAltas = alertas.filter((item) => item.nivel === 'Alto').length;
+
+  useEffect(() => {
+    async function inicializarNotificaciones() {
+      await configurarCanalNotificacionesAndroid();
+      await solicitarPermisosNotificaciones();
+    }
+
+    inicializarNotificaciones();
+
+    const limpiarSuscripciones = escucharNotificaciones();
+
+    return () => {
+      limpiarSuscripciones();
+    };
+  }, []);
+
+  async function analizarTexto() {
+    if (!textoEntrada.trim()) return;
+
+    const resultado = detectarViolencia(textoEntrada);
+
+    // si no hay violencia no hace nada
+    if (resultado.nivel === 'Sin riesgo') {
+      console.log('Mensaje sin riesgo');
+      setTextoEntrada('');
+      return;
+    }
+
+    const nuevaAlerta: Alerta = {
+      id: Date.now(),
+      remitente: 'Mensaje detectado',
+      hora: obtenerHoraActual(),
+      nivel: resultado.nivel,
+      estado: 'Pendiente',
+      mensaje: textoEntrada,
+  };
+
+  // agregar alerta a la lista
+  setAlertas((alertasPrevias) => [nuevaAlerta, ...alertasPrevias]);
+
+  // lanzar notificación
+  await enviarNotificacionLocal(
+    `⚠ Riesgo ${resultado.nivel}`,
+    textoEntrada
+  );
+
+  setTextoEntrada('');
+}
 
   return (
     <SafeAreaView style={estilos.areaSegura}>
@@ -73,7 +140,9 @@ export default function App() {
       <ScrollView contentContainerStyle={estilos.contenedor}>
         <View style={estilos.encabezado}>
           <Text style={estilos.titulo}>Sistema de Alerta de Violencia</Text>
-          <Text style={estilos.subtitulo}>Vista de monitoreo para tercero autorizado</Text>
+          <Text style={estilos.subtitulo}>
+            Vista de monitoreo para tercero autorizado
+          </Text>
         </View>
 
         <View style={estilos.tarjetaResumen}>
@@ -86,20 +155,39 @@ export default function App() {
             </View>
 
             <View style={estilos.cajaResumen}>
-              <Text style={[estilos.numeroResumen, { color: '#D32F2F' }]}>{alertasAltas}</Text>
+              <Text style={[estilos.numeroResumen, { color: '#D32F2F' }]}>
+                {alertasAltas}
+              </Text>
               <Text style={estilos.textoResumen}>Riesgo alto</Text>
             </View>
           </View>
 
           <Text style={estilos.descripcionResumen}>
-            Este panel muestra mensajes con posibles indicios de violencia verbal, amenaza,
-            manipulación o agresión psicológica.
+            Este panel muestra mensajes con posibles indicios de violencia verbal,
+            amenaza, manipulación o agresión psicológica.
           </Text>
+        </View>
+
+        <View style={estilos.tarjetaEntrada}>
+          <Text style={estilos.tituloEntrada}>Probar análisis de texto</Text>
+
+          <TextInput
+            style={estilos.campoTexto}
+            placeholder="Escribe o pega aquí un mensaje..."
+            placeholderTextColor="#94A3B8"
+            multiline
+            value={textoEntrada}
+            onChangeText={setTextoEntrada}
+          />
+
+          <Pressable style={estilos.botonAnalizar} onPress={analizarTexto}>
+            <Text style={estilos.textoBoton}>Analizar mensaje</Text>
+          </Pressable>
         </View>
 
         <Text style={estilos.seccionTitulo}>Notificaciones recientes</Text>
 
-        {alertasEjemplo.map((alerta) => (
+        {alertas.map((alerta) => (
           <View key={alerta.id} style={estilos.tarjetaAlerta}>
             <View style={estilos.filaSuperior}>
               <Text style={estilos.origenMensaje}>{alerta.remitente}</Text>
@@ -134,121 +222,3 @@ export default function App() {
     </SafeAreaView>
   );
 }
-
-const estilos = StyleSheet.create({
-  areaSegura: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-  },
-  contenedor: {
-    padding: 18,
-    paddingBottom: 30,
-  },
-  encabezado: {
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  titulo: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: 'bold',
-    marginBottom: 6,
-  },
-  subtitulo: {
-    color: '#CBD5E1',
-    fontSize: 14,
-  },
-  tarjetaResumen: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 22,
-  },
-  tituloResumen: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 14,
-  },
-  filaResumen: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
-  },
-  cajaResumen: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 14,
-    alignItems: 'center',
-  },
-  numeroResumen: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#0F172A',
-  },
-  textoResumen: {
-    marginTop: 6,
-    fontSize: 13,
-    color: '#475569',
-    textAlign: 'center',
-  },
-  descripcionResumen: {
-    color: '#475569',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  seccionTitulo: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
-  },
-  tarjetaAlerta: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-  },
-  filaSuperior: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  origenMensaje: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  hora: {
-    fontSize: 13,
-    color: '#64748B',
-  },
-  filaEtiquetas: {
-    flexDirection: 'row',
-    marginBottom: 12,
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  etiqueta: {
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  etiquetaTexto: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  labelMensaje: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 6,
-  },
-  mensaje: {
-    fontSize: 15,
-    color: '#1E293B',
-    lineHeight: 22,
-  },
-});
