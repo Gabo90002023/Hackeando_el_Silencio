@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
 import {
   DetectionResult,
   PermissionSetup,
@@ -10,6 +11,17 @@ import {
   useScreenReader,
 } from './modules/screen-reader';
 
+import { AnalisisScreen } from './screens/AnalisisScreen';
+import { ComoFuncionaScreen } from './screens/ComoFuncionaScreen';
+import { HomeScreen } from './screens/HomeScreen';
+import { NivelesRiesgoScreen } from './screens/NivelesRiesgoScreen';
+import { NotificacionesScreen } from './screens/NotificacionesScreen';
+import { PanelScreen } from './screens/PanelScreen';
+import { ProyectoScreen } from './screens/ProyectoScreen';
+import { ResultadoScreen } from './screens/ResultadoScreen';
+import { ViolenciaDigitalScreen } from './screens/ViolenciaDigitalScreen';
+import { ResultadoAnalisis } from './types/analisis';
+
 type CapturedText = {
   text: string;
   appPackage: string;
@@ -18,37 +30,52 @@ type CapturedText = {
 
 type Tab = 'alertas' | 'capturas';
 
+type Pantalla =
+  | 'inicio'
+  | 'panel'
+  | 'analisis'
+  | 'resultado'
+  | 'proyecto'
+  | 'violencia-digital'
+  | 'niveles-riesgo'
+  | 'como-funciona'
+  | 'notificaciones';
+
 export default function App() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [detections, setDetections] = useState<DetectionResult[]>([]);
   const [capturedTexts, setCapturedTexts] = useState<CapturedText[]>([]);
   const [tab, setTab] = useState<Tab>('capturas');
+
+  const [pantalla, setPantalla] = useState<Pantalla>('inicio');
+  const [resultadoActual, setResultadoActual] = useState<ResultadoAnalisis | null>(null);
+
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  // Hook para obtener texto y plataforma en tiempo real
-  //Deben usar esto para mandar a la libreria que detecta la violencia :V 
   const { texto, plataforma } = useScreenReader();
+
   useEffect(() => {
     if (!texto) return;
-    console.log("APP",`[${plataforma}]\n${texto}`);
+    console.log('APP', `[${plataforma}]\n${texto}`);
   }, [texto, plataforma]);
- 
 
-  // Cuando el permiso es concedido, inicia el monitoreo
   useEffect(() => {
     if (!permissionGranted) return;
 
     startMonitoring();
 
- 
-    // Suscribe al evento de texto capturado
     unsubscribeRef.current = onTextCaptured((result) => {
-      // Siempre guarda el texto capturado en el feed
       setCapturedTexts((prev) => [
-        { text: result.rawText, appPackage: result.appPackage, timestamp: result.timestamp },
+        {
+          text: result.rawText,
+          appPackage: result.appPackage,
+          timestamp: result.timestamp,
+        },
         ...prev,
       ].slice(0, 80));
+
       if (!result.detected) return;
+
       setDetections((prev) => [result, ...prev].slice(0, 50));
     });
 
@@ -70,14 +97,17 @@ export default function App() {
     <View style={estilos.tabBar}>
       <TouchableOpacity
         style={[estilos.tabBtn, tab === 'capturas' && estilos.tabBtnActivo]}
-        onPress={() => setTab('capturas')}>
+        onPress={() => setTab('capturas')}
+      >
         <Text style={[estilos.tabTexto, tab === 'capturas' && estilos.tabTextoActivo]}>
           📝 Capturas ({capturedTexts.length})
         </Text>
       </TouchableOpacity>
+
       <TouchableOpacity
         style={[estilos.tabBtn, tab === 'alertas' && estilos.tabBtnActivo]}
-        onPress={() => setTab('alertas')}>
+        onPress={() => setTab('alertas')}
+      >
         <Text style={[estilos.tabTexto, tab === 'alertas' && estilos.tabTextoActivo]}>
           🚨 Alertas ({detections.length})
         </Text>
@@ -85,29 +115,35 @@ export default function App() {
     </View>
   );
 
-  // Aún verificando permiso — renderiza la app normal, el modal aparece encima
-  const mainContent = (
-    <SafeAreaView style={estilos.areaSegura}>
+  const panelMonitoreo = (
+    <>
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={estilos.contenedor}>
         <View style={estilos.encabezado}>
           <Text style={estilos.titulo}>Sistema de Alerta de Violencia</Text>
           <Text style={estilos.subtitulo}>
-            {permissionGranted ? '🟢 Monitoreo activo en tiempo real' : '⏳ Esperando permiso de accesibilidad…'}
+            {permissionGranted
+              ? '🟢 Monitoreo activo en tiempo real'
+              : '⏳ Esperando permiso de accesibilidad…'}
           </Text>
         </View>
 
         <View style={estilos.tarjetaResumen}>
           <Text style={estilos.tituloResumen}>Resumen general</Text>
+
           <View style={estilos.filaResumen}>
             <View style={estilos.cajaResumen}>
-              <Text style={[estilos.numeroResumen, { color: '#4CAF50' }]}>{capturedTexts.length}</Text>
+              <Text style={[estilos.numeroResumen, { color: '#4CAF50' }]}>
+                {capturedTexts.length}
+              </Text>
               <Text style={estilos.textoResumen}>Textos capturados</Text>
             </View>
+
             <View style={estilos.cajaResumen}>
               <Text style={estilos.numeroResumen}>{detections.length}</Text>
               <Text style={estilos.textoResumen}>Alertas detectadas</Text>
             </View>
+
             <View style={estilos.cajaResumen}>
               <Text style={[estilos.numeroResumen, { color: '#D32F2F' }]}>
                 {alertasAltas}
@@ -115,6 +151,7 @@ export default function App() {
               <Text style={estilos.textoResumen}>Riesgo alto/crítico</Text>
             </View>
           </View>
+
           <Text style={estilos.descripcionResumen}>
             Detectando mensajes con indicios de amenaza, manipulación, acoso o
             violencia verbal en todas las apps del dispositivo.
@@ -132,6 +169,7 @@ export default function App() {
                 </Text>
               </View>
             )}
+
             {capturedTexts.map((cap, idx) => (
               <CapturaCard key={idx} capture={cap} />
             ))}
@@ -147,34 +185,120 @@ export default function App() {
                 </Text>
               </View>
             )}
+
             {detections.map((det, idx) => (
               <AlertaCard key={idx} detection={det} />
             ))}
           </>
         )}
       </ScrollView>
-    </SafeAreaView>
+    </>
   );
 
-  // Si el permiso no está concedido, muestra el modal sobre la app
+  let contenidoPantalla;
+
+  if (pantalla === 'inicio') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <HomeScreen onStart={() => setPantalla('panel')} />
+      </>
+    );
+  } else if (pantalla === 'analisis') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <AnalisisScreen
+          onBackToPanel={() => setPantalla('panel')}
+          onGoHome={() => setPantalla('inicio')}
+          onAnalysisComplete={(resultado) => {
+            setResultadoActual(resultado);
+            setPantalla('resultado');
+          }}
+        />
+      </>
+    );
+  } else if (pantalla === 'resultado' && resultadoActual) {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <ResultadoScreen
+          resultado={resultadoActual}
+          onBackToAnalisis={() => setPantalla('analisis')}
+          onBackToPanel={() => setPantalla('panel')}
+        />
+      </>
+    );
+  } else if (pantalla === 'proyecto') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <ProyectoScreen onBackToPanel={() => setPantalla('panel')} />
+      </>
+    );
+  } else if (pantalla === 'violencia-digital') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <ViolenciaDigitalScreen onBackToPanel={() => setPantalla('panel')} />
+      </>
+    );
+  } else if (pantalla === 'niveles-riesgo') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <NivelesRiesgoScreen onBackToPanel={() => setPantalla('panel')} />
+      </>
+    );
+  } else if (pantalla === 'como-funciona') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <ComoFuncionaScreen onBackToPanel={() => setPantalla('panel')} />
+      </>
+    );
+  } else if (pantalla === 'notificaciones') {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <NotificacionesScreen onBackToPanel={() => setPantalla('panel')} />
+      </>
+    );
+  } else {
+    contenidoPantalla = (
+      <>
+        <StatusBar style="light" />
+        <PanelScreen
+          onGoHome={() => setPantalla('inicio')}
+          onGoAnalisis={() => setPantalla('analisis')}
+          onGoProyecto={() => setPantalla('proyecto')}
+          onGoViolenciaDigital={() => setPantalla('violencia-digital')}
+          onGoNivelesRiesgo={() => setPantalla('niveles-riesgo')}
+          onGoComoFunciona={() => setPantalla('como-funciona')}
+          onGoNotificaciones={() => setPantalla('notificaciones')}
+        />
+      </>
+    );
+  }
+
   if (!permissionGranted) {
     return (
       <PermissionSetup onPermissionGranted={handlePermissionGranted}>
-        {mainContent}
+        {contenidoPantalla}
       </PermissionSetup>
     );
   }
 
-  return mainContent;
+  return contenidoPantalla;
 }
 
-// ─── Tarjeta de texto capturado (raw) ────────────────────────────────
 function CapturaCard({ capture }: { capture: CapturedText }) {
   const hora = new Date(capture.timestamp).toLocaleTimeString('es-MX', {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
   });
+
   const appCorta = capture.appPackage.split('.').pop() ?? capture.appPackage;
 
   return (
@@ -188,7 +312,6 @@ function CapturaCard({ capture }: { capture: CapturedText }) {
   );
 }
 
-// ─── Tarjeta por detección ─────────────────────────────────────────────────
 function AlertaCard({ detection }: { detection: DetectionResult }) {
   const hora = new Date(detection.timestamp).toLocaleTimeString('es-MX', {
     hour: '2-digit',
@@ -217,6 +340,7 @@ function AlertaCard({ detection }: { detection: DetectionResult }) {
         <View style={[estilos.etiqueta, { backgroundColor: nivelColor }]}>
           <Text style={estilos.etiquetaTexto}>{detection.severity}</Text>
         </View>
+
         {detection.matches.slice(0, 2).map((m, i) => (
           <View key={i} style={[estilos.etiqueta, { backgroundColor: '#1e293b' }]}>
             <Text style={estilos.etiquetaTexto}>{m.category}</Text>
@@ -226,7 +350,8 @@ function AlertaCard({ detection }: { detection: DetectionResult }) {
 
       <Text style={estilos.labelMensaje}>Fragmento detectado</Text>
       <Text style={estilos.mensaje}>
-        "{detection.rawText.slice(0, 160)}{detection.rawText.length > 160 ? '…' : ''}"
+        "{detection.rawText.slice(0, 160)}
+        {detection.rawText.length > 160 ? '…' : ''}"
       </Text>
 
       {detection.matches.length > 0 && (
@@ -234,6 +359,7 @@ function AlertaCard({ detection }: { detection: DetectionResult }) {
           <Text style={[estilos.labelMensaje, { marginTop: 8 }]}>
             Palabras/frases agresivas ({detection.matches.length})
           </Text>
+
           {detection.matches.map((m, i) => (
             <Text key={i} style={estilos.keyword}>
               • "{m.keyword}"
@@ -246,10 +372,6 @@ function AlertaCard({ detection }: { detection: DetectionResult }) {
 }
 
 const estilos = StyleSheet.create({
-  areaSegura: {
-    flex: 1,
-    backgroundColor: '#0F172A',
-  },
   contenedor: {
     padding: 18,
     paddingBottom: 30,
@@ -308,12 +430,6 @@ const estilos = StyleSheet.create({
     color: '#475569',
     fontSize: 14,
     lineHeight: 20,
-  },
-  seccionTitulo: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 14,
   },
   tarjetaAlerta: {
     backgroundColor: '#FFFFFF',
