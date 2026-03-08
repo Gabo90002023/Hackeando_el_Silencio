@@ -17,6 +17,7 @@ if (ScreenReaderNative && Platform.OS === 'android') {
 
 export type DetectionResult = {
   rawText: string;
+  
   appPackage: string;
   timestamp: number;
   detected: boolean;
