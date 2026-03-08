@@ -9,6 +9,8 @@ import {
   stopMonitoring,
   useScreenReader,
 } from './modules/screen-reader';
+import * as toxicity from '@tensorflow-models/toxicity';
+import { translate } from '@/api/deepl-trasnlate';
 
 type CapturedText = {
   text: string;
@@ -27,12 +29,47 @@ export default function App() {
 
   // Hook para obtener texto y plataforma en tiempo real
   //Deben usar esto para mandar a la libreria que detecta la violencia :V 
+  const [text, setText] = useState<string>('');
+  const [outputs, setOutputs] = useState<any[]>([]);
+
+  const testText =
+    'Malnacido hijo de tu putisima madre espero que si un dia te encuentran muerto sepan que sea por mi y decirte que desde el momento que te conoci me repugnaste hasta las entrañas tus estupidas formas de expresarte son las mas horrendas y asquerosas, al mostrarme como diseccionaste y mataste a esas personas mutiladas me dieron ganas de vomitar sobre tu cara.';
+
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const translated = await translate(text);
+        setText(translated);
+
+        const threshold = 0.9;
+        const model = await toxicity.load(threshold, [
+          'toxicity',
+          'severe_toxicity',
+          'identity_attack',
+          'insult',
+          'threat',
+          'sexual_explicit',
+          'obscene',
+        ]);
+
+        const predictions = await model.classify([translated]);
+        setOutputs(predictions);
+        console.log(predictions);
+      } catch (error) {
+        console.error('Error en traducción o clasificación:', error);
+      }
+    };
+
+    run();
+  }, [text]);
+
   const { texto, plataforma } = useScreenReader();
   useEffect(() => {
     if (!texto) return;
-    console.log("APP",`[${plataforma}]\n${texto}`);
+    setText(texto);
+    console.log("APP", `[${plataforma}]\n${texto}`);
   }, [texto, plataforma]);
- 
+
 
   // Cuando el permiso es concedido, inicia el monitoreo
   useEffect(() => {
@@ -40,7 +77,7 @@ export default function App() {
 
     startMonitoring();
 
- 
+
     // Suscribe al evento de texto capturado
     unsubscribeRef.current = onTextCaptured((result) => {
       // Siempre guarda el texto capturado en el feed
@@ -199,10 +236,10 @@ function AlertaCard({ detection }: { detection: DetectionResult }) {
     detection.severity === 'CRITICO'
       ? '#D32F2F'
       : detection.severity === 'ALTO'
-      ? '#F57C00'
-      : detection.severity === 'MEDIO'
-      ? '#F9A825'
-      : '#388E3C';
+        ? '#F57C00'
+        : detection.severity === 'MEDIO'
+          ? '#F9A825'
+          : '#388E3C';
 
   return (
     <View style={estilos.tarjetaAlerta}>
